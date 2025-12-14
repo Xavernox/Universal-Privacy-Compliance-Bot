@@ -1,118 +1,91 @@
-# Policy Service
+# Policy Service (FastAPI)
 
-Container-based policy generation and validation service for the U-PCB MVP.
+Container-based **policy generation** service for the U-PCB MVP.
 
-## Overview
+This service:
+- Loads editable **GDPR/CCPA** Markdown templates from MongoDB (falls back to seeded Markdown files)
+- Merges templates with the latest scan findings/issue counts
+- Optionally enriches wording with an **LLM provider** (pluggable driver)
 
-This service is responsible for generating, validating, and evaluating security policies across multiple cloud providers.
+## Endpoints
 
-## Features (TODO)
+### Health
 
-- [ ] Policy generation based on compliance frameworks (CIS, NIST, PCI-DSS, etc.)
-- [ ] Custom policy creation and validation
-- [ ] Policy evaluation against scan results
-- [ ] Policy recommendation engine
-- [ ] Automated remediation script generation
-- [ ] Multi-cloud policy translation
+`GET /health`
 
-## API Endpoints
+### Generate
 
-### Health Check
+`POST /generate`
 
-```
-GET /health
-```
+Alias (for ALB path routing): `POST /policy/generate`
 
-Returns the health status of the service.
-
-### Generate Policy
-
-```
-POST /policy/generate
-```
-
-Generates a new security policy based on provided parameters.
-
-**Request Body:**
+Example request:
 
 ```json
 {
-  "cloudProvider": "aws|azure|gcp",
-  "complianceFramework": "cis|nist|pci-dss",
-  "category": "security|compliance|cost",
-  "customRules": []
-}
-```
-
-### Validate Policy
-
-```
-POST /policy/validate
-```
-
-Validates a policy configuration.
-
-**Request Body:**
-
-```json
-{
-  "policy": {
-    "name": "string",
-    "rules": []
+  "framework": "gdpr",
+  "companyName": "Acme Inc.",
+  "websiteUrl": "https://example.com",
+  "useLlm": false,
+  "scan": {
+    "cloudProvider": "aws",
+    "status": "completed",
+    "resourcesScanned": 42,
+    "issuesFound": 3,
+    "criticalIssues": 0,
+    "highIssues": 1,
+    "mediumIssues": 2,
+    "lowIssues": 0,
+    "metadata": {
+      "findings": [
+        { "title": "S3 bucket is public", "severity": "high" }
+      ]
+    }
   }
 }
 ```
 
-### Evaluate Policy
-
-```
-POST /policy/evaluate
-```
-
-Evaluates a policy against scan results.
-
-**Request Body:**
+Response:
 
 ```json
 {
-  "policyId": "string",
-  "scanResults": []
+  "framework": "gdpr",
+  "markdown": "...",
+  "html": "...",
+  "complianceScore": 95,
+  "metadata": {
+    "template": { "source": "seed" },
+    "llm": { "used": false, "provider": "none" }
+  }
+}
+```
+
+## MongoDB Templates
+
+Templates are loaded from the `policy_templates` collection in `MONGODB_DB_NAME`.
+
+Example document:
+
+```json
+{
+  "framework": "gdpr",
+  "markdown": "# {{ framework_title }} Privacy Policy\n...",
+  "updatedAt": "2025-01-01T00:00:00.000Z"
 }
 ```
 
 ## Environment Variables
 
-- `PORT`: Service port (default: 3002)
-- `MONGODB_URI`: MongoDB connection string
-- `LOG_LEVEL`: Logging level
+- `PORT` (default `3002`)
+- `MONGODB_URI` (optional; if not provided, only seeded templates are used)
+- `MONGODB_DB_NAME` (default `upcb-mvp`)
+- `LLM_PROVIDER` (`none` | `mock` | `openai`)
+- `LLM_API_KEY` (required if `LLM_PROVIDER=openai`)
 
-## Development
-
-```bash
-npm install
-npm run dev
-```
-
-## Build
+## Local Docker
 
 ```bash
-npm run build
-```
-
-## Docker
-
-Build the Docker image:
-
-```bash
+cd services/policy
 docker build -t upcb-policy:latest .
+docker run --rm -p 3002:3002 upcb-policy:latest
 ```
-
-Run the container:
-
-```bash
-docker run -p 3002:3002 upcb-policy:latest
-```
-
-## Deployment
-
-This service is designed to run on AWS Fargate as part of the U-PCB infrastructure.

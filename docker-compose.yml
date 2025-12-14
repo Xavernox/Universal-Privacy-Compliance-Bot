@@ -55,6 +55,31 @@ services:
       retries: 3
       start_period: 60s
 
+  # Policy Generator Service
+  policy-service:
+    build:
+      context: ./services/policy
+      dockerfile: Dockerfile
+    container_name: site-scanner-policy-service
+    restart: unless-stopped
+    ports:
+      - "3002:3002"
+    environment:
+      - PORT=3002
+      - MONGODB_URI=mongodb://admin:password@mongodb:27017/site-scanner?authSource=admin
+      - MONGODB_DB_NAME=site-scanner
+      - LLM_PROVIDER=mock
+    networks:
+      - site-scanner-network
+    depends_on:
+      - mongodb
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
   # Next.js Application
   nextjs-app:
     build:
@@ -69,6 +94,7 @@ services:
       - PORT=3000
       - MONGODB_URI=mongodb://admin:password@mongodb:27017/site-scanner?authSource=admin
       - SCANNER_SERVICE_URL=http://scanner-service:8000
+      - POLICY_SERVICE_URL=http://policy-service:3002
       - JWT_SECRET=dev-jwt-secret-key
       - JWT_EXPIRES_IN=24h
     volumes:
@@ -81,6 +107,7 @@ services:
       - mongodb
       - redis
       - scanner-service
+      - policy-service
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
       interval: 30s

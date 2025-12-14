@@ -27,6 +27,30 @@ Parameters:
     NoEcho: true
     Description: Basic auth token for admin endpoints
 
+  MongoDBDbName:
+    Type: String
+    Default: upcb-mvp
+    Description: MongoDB database name
+
+  LLMApiKey:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: API key for LLM provider (optional)
+
+  LLMProvider:
+    Type: String
+    Default: none
+    AllowedValues:
+      - none
+      - mock
+      - openai
+    Description: LLM provider driver for Policy Service
+
+  PolicyServiceImage:
+    Type: String
+    Description: ECR image URI for Policy Service
+
   VpcCIDR:
     Type: String
     Default: 10.0.0.0/16
@@ -61,6 +85,7 @@ Globals:
       Variables:
         ENVIRONMENT: !Ref Environment
         MONGODB_URI: !Ref MongoDBUri
+        MONGODB_DB_NAME: !Ref MongoDBDbName
         JWT_SECRET: !Ref JWTSecret
         ADMIN_BASIC_TOKEN: !Ref AdminBasicToken
 
@@ -205,8 +230,10 @@ Resources:
       SecretString: !Sub |
         {
           "MONGODB_URI": "${MongoDBUri}",
+          "MONGODB_DB_NAME": "${MongoDBDbName}",
           "JWT_SECRET": "${JWTSecret}",
-          "ADMIN_BASIC_TOKEN": "${AdminBasicToken}"
+          "ADMIN_BASIC_TOKEN": "${AdminBasicToken}",
+          "LLM_API_KEY": "${LLMApiKey}"
         }
 
   ECSCluster:
@@ -379,6 +406,79 @@ Resources:
       LogGroupName: !Sub /ecs/${AWS::StackName}/policy
       RetentionInDays: 7
 
+  PolicyListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref ALBListener
+      Priority: 20
+      Conditions:
+        - Field: path-pattern
+          Values:
+            - /policy/*
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref PolicyTargetGroup
+
+  PolicyTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub ${AWS::StackName}-policy
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: 512
+      Memory: 1024
+      ExecutionRoleArn: !GetAtt ECSTaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt ECSTaskRole.Arn
+      ContainerDefinitions:
+        - Name: policy
+          Image: !Ref PolicyServiceImage
+          Essential: true
+          PortMappings:
+            - ContainerPort: 3002
+              Protocol: tcp
+          Environment:
+            - Name: PORT
+              Value: "3002"
+            - Name: LLM_PROVIDER
+              Value: !Ref LLMProvider
+          Secrets:
+            - Name: MONGODB_URI
+              ValueFrom: !Sub "${SecretsManagerSecret}:MONGODB_URI::"
+            - Name: MONGODB_DB_NAME
+              ValueFrom: !Sub "${SecretsManagerSecret}:MONGODB_DB_NAME::"
+            - Name: LLM_API_KEY
+              ValueFrom: !Sub "${SecretsManagerSecret}:LLM_API_KEY::"
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref PolicyServiceLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ecs
+
+  PolicyECSService:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - PolicyListenerRule
+    Properties:
+      ServiceName: !Sub ${AWS::StackName}-policy
+      Cluster: !Ref ECSCluster
+      DesiredCount: 1
+      LaunchType: FARGATE
+      TaskDefinition: !Ref PolicyTaskDefinition
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets:
+            - !Ref PrivateSubnet1
+            - !Ref PrivateSubnet2
+          SecurityGroups:
+            - !Ref PolicyServiceSecurityGroup
+      LoadBalancers:
+        - ContainerName: policy
+          ContainerPort: 3002
+          TargetGroupArn: !Ref PolicyTargetGroup
+
   NextJSFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -391,6 +491,7 @@ Resources:
       Environment:
         Variables:
           MONGODB_URI: !Ref MongoDBUri
+          MONGODB_DB_NAME: !Ref MongoDBDbName
           JWT_SECRET: !Ref JWTSecret
           ADMIN_BASIC_TOKEN: !Ref AdminBasicToken
           SCANNER_SERVICE_URL: !Sub http://${ApplicationLoadBalancer.DNSName}/scanner
