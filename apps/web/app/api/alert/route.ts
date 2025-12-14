@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import connectToDatabase from '@/lib/db/mongodb';
 import Alert from '@/lib/db/models/Alert';
 import { withAuth } from '@/lib/auth/middleware';
+import { queueAlert, realtimeAlertService } from '@/lib/alerting';
 
 export const GET = withAuth(async (request, user) => {
   try {
@@ -57,6 +58,14 @@ export const POST = withAuth(async (request, user) => {
       userId: user.userId,
       status: 'open',
     });
+
+    realtimeAlertService.publishAlert(alert);
+
+    try {
+      await queueAlert(alert._id.toString(), user.userId);
+    } catch (queueError: any) {
+      console.warn('Failed to queue alert for delivery:', queueError.message);
+    }
 
     return NextResponse.json(
       {
