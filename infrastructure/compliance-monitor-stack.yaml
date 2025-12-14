@@ -1,0 +1,303 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Compliance Monitor Infrastructure - SQS, EventBridge, Lambda, and IAM'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+    Description: Deployment environment
+  
+  AdminEmail:
+    Type: String
+    Default: admin@company.com
+    Description: Administrator email for alerts
+  
+  SendGridApiKeySecret:
+    Type: String
+    Default: SendGridApiKey
+    Description: AWS Secrets Manager secret name for SendGrid API key
+  
+  SlackWebhookSecret:
+    Type: String
+    Default: SlackWebhookUrl
+    Description: AWS Secrets Manager secret name for Slack webhook URL
+
+Resources:
+  # SQS Queue for scan jobs
+  MonitorQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${Environment}-compliance-monitor-queue'
+      VisibilityTimeout: 300
+      MessageRetentionPeriod: 1209600
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt DeadLetterQueue.Arn
+        maxReceiveCount: 3
+
+  # Dead Letter Queue for failed messages
+  DeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${Environment}-compliance-monitor-dlq'
+
+  # IAM Role for Monitor Lambda
+  MonitorLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${Environment}-compliance-monitor-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: MonitorLambdaPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:SendMessage
+                Resource: !GetAtt MonitorQueue.Arn
+              - Effect: Allow
+                Action:
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                Resource: 
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${Environment}-Users'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${Environment}-Trackers'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${Environment}-Policies'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${Environment}-ComplianceScans'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${Environment}-Users/index/ActiveUsersIndex'
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SendGridApiKeySecret}*'
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SlackWebhookSecret}*'
+
+  # IAM Role for Alert Lambda
+  AlertLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${Environment}-compliance-alert-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: AlertLambdaPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SendGridApiKeySecret}*'
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SlackWebhookSecret}*'
+
+  # Monitor Lambda Function
+  MonitorLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${Environment}-compliance-monitor'
+      Handler: index.handler
+      Role: !GetAtt MonitorLambdaRole.Arn
+      Code:
+        ZipFile: |
+          exports.handler = async (event) => {
+            console.log('Monitor Lambda placeholder - replace with actual deployment');
+            return { statusCode: 200, body: JSON.stringify({ message: 'Monitor Lambda deployed' }) };
+          };
+      Runtime: nodejs18.x
+      Timeout: 300
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          MONITOR_QUEUE_URL: !Ref MonitorQueue
+          USERS_TABLE: !Sub '${Environment}-Users'
+          TRACKERS_TABLE: !Sub '${Environment}-Trackers'
+          POLICIES_TABLE: !Sub '${Environment}-Policies'
+          ALERT_SERVICE_URL: !Sub 'https://${Environment}-api.example.com/alerts'
+
+  # Alert Lambda Function
+  AlertLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${Environment}-compliance-alert'
+      Handler: alertService.handler
+      Role: !GetAtt AlertLambdaRole.Arn
+      Code:
+        ZipFile: |
+          const { sendAlert } = require('./alertService');
+          exports.handler = sendAlert;
+      Runtime: nodejs18.x
+      Timeout: 60
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          SENDGRID_API_KEY_SECRET: !Ref SendGridApiKeySecret
+          SLACK_WEBHOOK_SECRET: !Ref SlackWebhookSecret
+          ADMIN_EMAIL: !Ref AdminEmail
+          ALERT_FROM_EMAIL: !Sub 'alerts-${Environment}@compliance-system.com'
+
+  # EventBridge Rule for daily monitoring
+  DailyMonitorRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub '${Environment}-daily-compliance-monitor'
+      Description: 'Triggers compliance monitoring daily'
+      ScheduleExpression: 'cron(0 2 * * ? *)' # 2 AM UTC daily
+      State: ENABLED
+      Targets:
+        - Id: MonitorLambdaTarget
+          Arn: !GetAtt MonitorLambda.Arn
+
+  # Permission for EventBridge to invoke Lambda
+  EventBridgeInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref MonitorLambda
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt DailyMonitorRule.Arn
+
+  # Secrets for SendGrid API Key
+  SendGridSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub '${Environment}/${SendGridApiKeySecret}'
+      Description: 'SendGrid API Key for email alerts'
+      GenerateSecretString:
+        SecretStringTemplate: '{}'
+        GenerateStringKey: 'apiKey'
+        PasswordLength: 69
+        ExcludeCharacters: '"@/\'
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Service
+          Value: 'Compliance-Monitor'
+
+  # Secrets for Slack Webhook URL
+  SlackSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub '${Environment}/${SlackWebhookSecret}'
+      Description: 'Slack webhook URL for alerts'
+      GenerateSecretString:
+        SecretStringTemplate: '{"webhookUrl": ""}'
+        GenerateStringKey: 'webhookUrl'
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Service
+          Value: 'Compliance-Monitor'
+
+  # CloudWatch Log Group for Monitor Lambda
+  MonitorLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${MonitorLambda}'
+      RetentionInDays: 30
+
+  # CloudWatch Log Group for Alert Lambda
+  AlertLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AlertLambda}'
+      RetentionInDays: 30
+
+  # CloudWatch Alarms for monitoring
+  MonitorLambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${Environment}-compliance-monitor-errors'
+      AlarmDescription: 'Alert when monitor lambda has errors'
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref MonitorLambda
+      TreatMissingData: notBreaching
+
+  MonitorQueueAgeAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${Environment}-compliance-monitor-queue-age'
+      AlarmDescription: 'Alert when messages in monitor queue are too old'
+      MetricName: AgeOfOldestMessage
+      Namespace: AWS/SQS
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 1800
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt MonitorQueue.QueueName
+      TreatMissingData: notBreaching
+
+Outputs:
+  MonitorQueueUrl:
+    Description: 'URL of the SQS queue for scan jobs'
+    Value: !Ref MonitorQueue
+    Export:
+      Name: !Sub '${AWS::StackName}-MonitorQueueUrl'
+
+  MonitorLambdaFunctionName:
+    Description: 'Name of the Monitor Lambda function'
+    Value: !Ref MonitorLambda
+    Export:
+      Name: !Sub '${AWS::StackName}-MonitorLambda'
+
+  AlertLambdaFunctionName:
+    Description: 'Name of the Alert Lambda function'
+    Value: !Ref AlertLambda
+    Export:
+      Name: !Sub '${AWS::StackName}-AlertLambda'
+
+  SendGridSecretArn:
+    Description: 'ARN of the SendGrid API key secret'
+    Value: !Ref SendGridSecret
+    Export:
+      Name: !Sub '${AWS::StackName}-SendGridSecretArn'
+
+  SlackSecretArn:
+    Description: 'ARN of the Slack webhook secret'
+    Value: !Ref SlackSecret
+    Export:
+      Name: !Sub '${AWS::StackName}-SlackSecretArn'
+
+  DailyScheduleArn:
+    Description: 'ARN of the EventBridge schedule'
+    Value: !GetAtt DailyMonitorRule.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-DailyScheduleArn'

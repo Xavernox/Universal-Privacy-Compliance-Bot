@@ -1,0 +1,123 @@
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+.nyc_output
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+logs
+*.log
+
+# AWS Lambda deployment packages
+lambda/monitor.zip
+lambda/alerts.zip
+
+# Terraform state files (use remote state in production)
+*.tfstate
+*.tfstate.*
+.terraform/
+
+# CloudFormation deployment artifacts
+cloudformation-deployment/
+
+# Build outputs
+dist/
+build/
+
+# Temporary files
+tmp/
+temp/
+
+# Editor directories and files
+.vscode/
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Package files
+*.tgz
+*.tar.gz
+
+# Local development
+.local/
+dev-credentials.json
+
+# Test artifacts
+test-results/
+test-output/
+
+# Deployment scripts output
+deployment-output/
+
+# Secrets and keys
+*.pem
+*.key
+secrets/
+keys/
+
+# Terraform plans
+*.tfplan
+*.tfplan.*
+
+# Localstack
+.localstack/
+
+# Docker
+Dockerfile.local
+docker-compose.override.yml
+
+# Jest
+jest.config.js
+*.test.js.snap
+
+# ESLint
+.eslintcache
+
+# Prettier
+.prettierignore
+
+# Package manager lock files (keep the one you use)
+package-lock.json
+yarn.lock
+
+# Local development database
+*.db
+*.sqlite
+*.sqlite3
