@@ -1,0 +1,26 @@
+# FastAPI and web server
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+
+# HTTP client and utilities
+httpx==0.25.2
+python-multipart==0.0.6
+
+# Data validation and parsing
+pydantic==2.5.0
+python-dotenv==1.0.0
+
+# Playwright for browser automation
+playwright==1.40.0
+
+# Logging and monitoring
+structlog==23.2.0
+
+# Async utilities
+aiofiles==23.2.1
+
+# Security
+cryptography>=3.4.8
+
+# Health checks
+psutil==5.9.6

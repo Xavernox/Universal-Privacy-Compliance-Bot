@@ -22,6 +22,44 @@ coverage/
 .env.production.local
 
 # IDE files
+/.pnp
+.pnp.js
+
+# Testing
+/coverage
+
+# Next.js
+.next/
+out/
+build/
+dist/
+
+# Production
+/build
+
+# Misc
+.DS_Store
+*.pem
+
+# Debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Local env files
+.env
+.env*.local
+.env.production
+
+# Vercel
+.vercel
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# IDE
 .vscode/
 .idea/
 *.swp
@@ -35,6 +73,7 @@ coverage/
 .Spotlight-V100
 .Trashes
 ehthumbs.db
+# OS
 Thumbs.db
 
 # Logs
@@ -121,3 +160,6 @@ yarn.lock
 *.db
 *.sqlite
 *.sqlite3
+# AWS SAM
+.aws-sam/
+samconfig.toml
